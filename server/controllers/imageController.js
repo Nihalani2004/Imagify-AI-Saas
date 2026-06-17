@@ -1,0 +1,276 @@
+import userModel from "../models/userModel.js";
+import FormData from "form-data";
+import axios from "axios";
+import crypto from "crypto";
+import { redisClient, ensureRedisConnection } from "../config/redis.js";
+import { historyManager } from "../utils/historyManager.js";
+
+
+export const generateImage = async (req,res) => {
+ const startTime = Date.now(); // 📊 Start performance timer
+ try {
+  console.log('🎯 GENERATE IMAGE REQUEST RECEIVED');
+  const { prompt } = req.body;        // Get prompt from body
+  const userId = req.userId;          // Get userId from middleware
+  
+  console.log('📝 Prompt received:', prompt);
+  console.log('👤 User ID:', userId);
+  
+  const user = await userModel.findById(userId)
+  if(!user || !prompt) {
+    console.log('❌ Missing user or prompt');
+    return res.json({success:false , message:"Missing Details"})
+  }
+
+  console.log('💳 User credit balance:', user.creditBalance);
+
+  if(user.creditBalance === 0 || user.creditBalance < 0) {
+    console.log('❌ Insufficient credits');
+    return res.json({success:false , message:"No credit Balance" , creditBalance:user.creditBalance})
+  }
+
+  // 🚀 REDIS CACHING: Create cache key from prompt
+  const promptHash = crypto.createHash('md5').update(prompt.toLowerCase().trim()).digest('hex');
+  const cacheKey = `image:${promptHash}`;
+  
+  console.log('🔑 Cache key generated:', cacheKey);
+  console.log('🔍 Checking Redis cache...');
+
+  try {
+    // 🔍 Ensure Redis is connected and check cache
+    await ensureRedisConnection();
+    const cachedImage = await redisClient.get(cacheKey);
+    
+    if (cachedImage) {
+      console.log('✅ Cache HIT - Returning cached image for prompt:', prompt);
+      console.log('📏 Cached image size:', cachedImage.length, 'characters');
+      
+      
+      await historyManager.addToHistory(userId, prompt, cachedImage, true);
+
+      // Increment rate limit count ONLY on success (Policy B)
+      let rateLimit = req.rateLimitInfo || null;
+      try {
+        const RATE_LIMIT = 10;
+        await ensureRedisConnection();
+        if (req.rateLimitKey) {
+          const newCount = await redisClient.incr(req.rateLimitKey);
+          if (newCount === 1) {
+            await redisClient.expire(req.rateLimitKey, 3600);
+          }
+          rateLimit = {
+            currentCount: newCount,
+            maxLimit: RATE_LIMIT,
+            remaining: RATE_LIMIT - newCount
+          };
+        }
+      } catch (incErr) {
+        console.log('⚠️ Failed to increment rate limit after cache hit:', incErr.message);
+      }
+      
+      const responseTime = Date.now() - startTime;
+      console.log('⚡ CACHE HIT - Response time:', responseTime, 'ms');
+      
+      return res.json({
+        success: true,
+        message: "Image Retrieved from Cache",
+        creditBalance: user.creditBalance, // No credit deduction for cached images
+        resultImage: cachedImage,
+        fromCache: true,
+        rateLimit: rateLimit,
+        responseTime: responseTime
+      });
+    }
+    
+    console.log('❌ Cache MISS - Generating new image for prompt:', prompt);
+  } catch (cacheError) {
+    console.log('🚨 Redis cache check failed:', cacheError.message);
+    // Continue with API call if cache fails
+  }
+
+  // 🎨 Generate new image via API
+  const formData = new FormData()
+  formData.append('prompt',prompt)
+
+  const {data} = await axios.post('https://clipdrop-api.co/text-to-image/v1',formData,{
+    headers: {
+      'x-api-key': process.env.CLIPDROP_API,
+    },
+    responseType:"arraybuffer"
+  })
+  
+  const base64Image = Buffer.from(data , 'binary').toString('base64')
+  const resultImage = `data:image/png;base64,${base64Image}`
+  
+  // 💾 Store in Redis cache (expires in 24 hours)
+  try {
+    await ensureRedisConnection();
+    await redisClient.setEx(cacheKey, 86400, resultImage); // 24 hours = 86400 seconds
+    console.log('✅ Image cached successfully for prompt:', prompt);
+    console.log('📏 Cached image size:', resultImage.length, 'characters');
+    console.log('⏰ Cache expires in 24 hours');
+  } catch (cacheError) {
+    console.log('🚨 Failed to cache image:', cacheError.message);
+    // Continue even if caching fails
+  }
+  
+  // 💳 Deduct credit only for new generations
+  await userModel.findByIdAndUpdate(user._id , {creditBalance:user.creditBalance-1})
+  
+  // 📚 Add to user history
+  await historyManager.addToHistory(userId, prompt, resultImage, false);
+
+  // Increment rate limit count ONLY on success (Policy B)
+  let rateLimit = req.rateLimitInfo || null;
+  try {
+    const RATE_LIMIT = 10;
+    await ensureRedisConnection();
+    if (req.rateLimitKey) {
+      const newCount = await redisClient.incr(req.rateLimitKey);
+      if (newCount === 1) {
+        await redisClient.expire(req.rateLimitKey, 3600);
+      }
+      rateLimit = {
+        currentCount: newCount,
+        maxLimit: RATE_LIMIT,
+        remaining: RATE_LIMIT - newCount
+      };
+    }
+  } catch (incErr) {
+    console.log('⚠️ Failed to increment rate limit after new generation:', incErr.message);
+  }
+  
+  const responseTime = Date.now() - startTime;
+  console.log('🐌 NEW GENERATION - Response time:', responseTime, 'ms');
+  
+  res.json({
+    success:true,
+    message:"Image Generated",
+    creditBalance:user.creditBalance-1,
+    resultImage,
+    fromCache: false,
+    rateLimit: rateLimit,
+    responseTime: responseTime
+  })
+
+ } catch (error) {
+  console.log(error.message);
+  res.json({success:false , message:error.message})
+ }
+}
+
+
+
+
+// 🗑️ Clear image cache (for admin/debugging)
+export const clearImageCache = async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    
+    if (prompt) {
+      // Clear specific prompt cache
+      const promptHash = crypto.createHash('md5').update(prompt.toLowerCase().trim()).digest('hex');
+      const cacheKey = `image:${promptHash}`;
+      await redisClient.del(cacheKey);
+      res.json({ success: true, message: `Cache cleared for prompt: ${prompt}` });
+    } else {
+      // Clear all image caches
+      const keys = await redisClient.keys('image:*');
+      if (keys.length > 0) {
+        await redisClient.del(keys);
+        res.json({ success: true, message: `Cleared ${keys.length} cached images` });
+      } else {
+        res.json({ success: true, message: 'No cached images found' });
+      }
+    }
+  } catch (error) {
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// 📊 Get cache statistics
+export const getCacheStats = async (req, res) => {
+  try {
+    const keys = await redisClient.keys('image:*');
+    const stats = {
+      totalCachedImages: keys.length,
+      cacheKeys: keys
+    };
+    res.json({ success: true, stats });
+  } catch (error) {
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+
+// 🚦 Get user's current rate limit status
+export const getRateLimitStatus = async (req, res) => {
+  try {
+    const userId = req.userId;
+    await ensureRedisConnection();
+    
+    const currentHour = Math.floor(Date.now() / (1000 * 60 * 60));
+    const hourlyKey = `rate_limit:${userId}:${currentHour}`;
+    
+    const currentCount = await redisClient.get(hourlyKey);
+    const count = currentCount ? parseInt(currentCount) : 0;
+    const RATE_LIMIT = 10;
+    
+    res.json({
+      success: true,
+      rateLimit: {
+        currentCount: count,
+        maxLimit: RATE_LIMIT,
+        remaining: RATE_LIMIT - count,
+        resetTime: (currentHour + 1) * 60 * 60 * 1000,
+        isLimited: count >= RATE_LIMIT
+      }
+    });
+  } catch (error) {
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+
+
+
+// 📚 Get user's generation history
+export const getGenerationHistory = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { limit } = req.query; // Optional limit parameter
+    
+    const history = await historyManager.getHistory(userId, limit ? parseInt(limit) : 10);
+    const stats = await historyManager.getHistoryStats(userId);
+    
+    res.json({
+      success: true,
+      history: history,
+      stats: stats,
+      message: `Retrieved ${history.length} history entries`
+    });
+  } catch (error) {
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// 🗑️ Clear user's generation history
+export const clearGenerationHistory = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const success = await historyManager.clearHistory(userId);
+    
+    if (success) {
+      res.json({ success: true, message: "Generation history cleared successfully" });
+    } else {
+      res.json({ success: false, message: "Failed to clear history" });
+    }
+  } catch (error) {
+    console.log(error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
