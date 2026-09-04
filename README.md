@@ -78,7 +78,11 @@ PORT=4000
 MONGODB_URI=your_mongodb_connection_string
 REDIS_URL=your_redis_connection_string
 JWT_SECRET=your_jwt_signing_key
-CLIPDROP_API_KEY=your_clipdrop_api_key
+CLIPDROP_API=your_clipdrop_api_key
+# Optional: set to true in production to fail startup instead of using the in-memory fallback.
+REQUIRE_REDIS=true
+# Optional: defaults to 86400 (24 hours).
+IMAGE_CACHE_TTL_SECONDS=86400
 ```
 
 Start the backend server:

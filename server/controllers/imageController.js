@@ -2,8 +2,21 @@ import userModel from "../models/userModel.js";
 import FormData from "form-data";
 import axios from "axios";
 import crypto from "crypto";
-import { redisClient, ensureRedisConnection } from "../config/redis.js";
+import { redisClient, ensureRedisConnection, scanRedisKeys } from "../config/redis.js";
 import { historyManager } from "../utils/historyManager.js";
+import { releaseRateLimitReservation } from "../middlewares/rateLimiter.js";
+
+const IMAGE_CACHE_NAMESPACE = 'clipdrop-text-to-image-v1';
+const IMAGE_CACHE_TTL_SECONDS = Number(process.env.IMAGE_CACHE_TTL_SECONDS || 86400);
+
+const createImageCacheKey = (prompt) => {
+  const normalizedPrompt = prompt.toLowerCase().trim();
+  const promptHash = crypto
+    .createHash('sha256')
+    .update(`${IMAGE_CACHE_NAMESPACE}:${normalizedPrompt}`)
+    .digest('hex');
+  return `image:${IMAGE_CACHE_NAMESPACE}:${promptHash}`;
+};
 
 
 export const generateImage = async (req,res) => {
@@ -19,6 +32,7 @@ export const generateImage = async (req,res) => {
   const user = await userModel.findById(userId)
   if(!user || !prompt) {
     console.log('❌ Missing user or prompt');
+    await releaseRateLimitReservation(req);
     return res.json({success:false , message:"Missing Details"})
   }
 
@@ -26,12 +40,12 @@ export const generateImage = async (req,res) => {
 
   if(user.creditBalance === 0 || user.creditBalance < 0) {
     console.log('❌ Insufficient credits');
+    await releaseRateLimitReservation(req);
     return res.json({success:false , message:"No credit Balance" , creditBalance:user.creditBalance})
   }
 
-  // 🚀 REDIS CACHING: Create cache key from prompt
-  const promptHash = crypto.createHash('md5').update(prompt.toLowerCase().trim()).digest('hex');
-  const cacheKey = `image:${promptHash}`;
+  // 🚀 REDIS CACHING: versioned SHA-256 key prevents collisions across models.
+  const cacheKey = createImageCacheKey(prompt);
   
   console.log('🔑 Cache key generated:', cacheKey);
   console.log('🔍 Checking Redis cache...');
@@ -48,25 +62,7 @@ export const generateImage = async (req,res) => {
       
       await historyManager.addToHistory(userId, prompt, cachedImage, true);
 
-      // Increment rate limit count ONLY on success (Policy B)
-      let rateLimit = req.rateLimitInfo || null;
-      try {
-        const RATE_LIMIT = 10;
-        await ensureRedisConnection();
-        if (req.rateLimitKey) {
-          const newCount = await redisClient.incr(req.rateLimitKey);
-          if (newCount === 1) {
-            await redisClient.expire(req.rateLimitKey, 3600);
-          }
-          rateLimit = {
-            currentCount: newCount,
-            maxLimit: RATE_LIMIT,
-            remaining: RATE_LIMIT - newCount
-          };
-        }
-      } catch (incErr) {
-        console.log('⚠️ Failed to increment rate limit after cache hit:', incErr.message);
-      }
+      const rateLimit = req.rateLimitInfo || null;
       
       const responseTime = Date.now() - startTime;
       console.log('⚡ CACHE HIT - Response time:', responseTime, 'ms');
@@ -105,7 +101,7 @@ export const generateImage = async (req,res) => {
   // 💾 Store in Redis cache (expires in 24 hours)
   try {
     await ensureRedisConnection();
-    await redisClient.setEx(cacheKey, 86400, resultImage); // 24 hours = 86400 seconds
+    await redisClient.setEx(cacheKey, IMAGE_CACHE_TTL_SECONDS, resultImage);
     console.log('✅ Image cached successfully for prompt:', prompt);
     console.log('📏 Cached image size:', resultImage.length, 'characters');
     console.log('⏰ Cache expires in 24 hours');
@@ -120,25 +116,7 @@ export const generateImage = async (req,res) => {
   // 📚 Add to user history
   await historyManager.addToHistory(userId, prompt, resultImage, false);
 
-  // Increment rate limit count ONLY on success (Policy B)
-  let rateLimit = req.rateLimitInfo || null;
-  try {
-    const RATE_LIMIT = 10;
-    await ensureRedisConnection();
-    if (req.rateLimitKey) {
-      const newCount = await redisClient.incr(req.rateLimitKey);
-      if (newCount === 1) {
-        await redisClient.expire(req.rateLimitKey, 3600);
-      }
-      rateLimit = {
-        currentCount: newCount,
-        maxLimit: RATE_LIMIT,
-        remaining: RATE_LIMIT - newCount
-      };
-    }
-  } catch (incErr) {
-    console.log('⚠️ Failed to increment rate limit after new generation:', incErr.message);
-  }
+  const rateLimit = req.rateLimitInfo || null;
   
   const responseTime = Date.now() - startTime;
   console.log('🐌 NEW GENERATION - Response time:', responseTime, 'ms');
@@ -155,6 +133,7 @@ export const generateImage = async (req,res) => {
 
  } catch (error) {
   console.log(error.message);
+  await releaseRateLimitReservation(req);
   res.json({success:false , message:error.message})
  }
 }
@@ -169,13 +148,13 @@ export const clearImageCache = async (req, res) => {
     
     if (prompt) {
       // Clear specific prompt cache
-      const promptHash = crypto.createHash('md5').update(prompt.toLowerCase().trim()).digest('hex');
-      const cacheKey = `image:${promptHash}`;
+      const cacheKey = createImageCacheKey(prompt);
+      await ensureRedisConnection();
       await redisClient.del(cacheKey);
       res.json({ success: true, message: `Cache cleared for prompt: ${prompt}` });
     } else {
       // Clear all image caches
-      const keys = await redisClient.keys('image:*');
+      const keys = await scanRedisKeys('image:*');
       if (keys.length > 0) {
         await redisClient.del(keys);
         res.json({ success: true, message: `Cleared ${keys.length} cached images` });
@@ -192,10 +171,8 @@ export const clearImageCache = async (req, res) => {
 // 📊 Get cache statistics
 export const getCacheStats = async (req, res) => {
   try {
-    const keys = await redisClient.keys('image:*');
     const stats = {
-      totalCachedImages: keys.length,
-      cacheKeys: keys
+      totalCachedImages: (await scanRedisKeys('image:*')).length
     };
     res.json({ success: true, stats });
   } catch (error) {

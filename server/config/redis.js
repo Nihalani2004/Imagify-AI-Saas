@@ -56,6 +56,14 @@ class InMemoryRedis {
         return val;
     }
 
+    async decr(key) {
+        this._cleanExpired(key);
+        const current = parseInt(this.store.get(key) || '0', 10);
+        const next = current - 1;
+        this.store.set(key, String(next));
+        return next;
+    }
+
     async del(keyOrKeys) {
         const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
         let count = 0;
@@ -76,6 +84,14 @@ class InMemoryRedis {
             }
         }
         return result;
+    }
+
+    async *scanIterator(options = {}) {
+        const pattern = options.MATCH || '*';
+        const keys = await this.keys(pattern);
+        for (const key of keys) {
+            yield key;
+        }
     }
 
     async expire(key, seconds) {
@@ -131,7 +147,8 @@ let usingMock = false;
 
 // Try to create real Redis client
 const realRedisClient = createClient({
-    url: 'redis://localhost:6379',
+    // Supports local Redis during development and managed Redis in deployment.
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
     socket: {
         reconnectStrategy: (retries) => {
             if (retries > 2) {
@@ -143,12 +160,14 @@ const realRedisClient = createClient({
 });
 
 // Suppress error events on the real client to avoid unhandled error crashes
-realRedisClient.on('error', () => {});
+realRedisClient.on('error', (error) => {
+    console.error(`Redis client error: ${error.message}`);
+});
 
 // Connect to Redis
 const connectRedis = async () => {
     try {
-        console.log('🔄 Attempting to connect to Redis...');
+        console.log(`🔄 Attempting to connect to ${process.env.REDIS_URL ? 'configured Redis' : 'local Redis at redis://localhost:6379'}...`);
         if (!realRedisClient.isOpen) {
             await realRedisClient.connect();
         }
@@ -160,6 +179,9 @@ const connectRedis = async () => {
         console.log('Redis client connected successfully');
     } catch (error) {
         // Real Redis not available — use in-memory mock
+        if (process.env.REQUIRE_REDIS === 'true') {
+            throw new Error(`Redis connection failed: ${error.message}`);
+        }
         console.log('⚠️ Redis server not found. Starting In-Memory Redis Mock...');
         redisClient = new InMemoryRedis();
         usingMock = true;
@@ -187,4 +209,16 @@ const ensureRedisConnection = async () => {
     return redisClient;
 };
 
-export { redisClient, connectRedis, ensureRedisConnection };
+// Uses SCAN rather than KEYS so cache administration does not block Redis.
+const scanRedisKeys = async (pattern) => {
+    const client = await ensureRedisConnection();
+    const keys = [];
+    for await (const batch of client.scanIterator({ MATCH: pattern, COUNT: 100 })) {
+        // node-redis yields batches, while the in-memory development mock
+        // yields individual keys.
+        keys.push(...(Array.isArray(batch) ? batch : [batch]));
+    }
+    return keys;
+};
+
+export { redisClient, connectRedis, ensureRedisConnection, scanRedisKeys };
