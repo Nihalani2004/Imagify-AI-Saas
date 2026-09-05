@@ -1,6 +1,7 @@
 import express from "express"
 import { generateImage, clearImageCache, getCacheStats, getRateLimitStatus, getGenerationHistory, clearGenerationHistory } from "../controllers/imageController.js"
 import userAuth from "../middlewares/auth.js";
+import requireAdmin from "../middlewares/requireAdmin.js";
 import { imageRateLimit } from "../middlewares/rateLimiter.js";
 
 const imageRouter = express.Router();
@@ -8,10 +9,10 @@ const imageRouter = express.Router();
 imageRouter.post('/generate-image', userAuth, imageRateLimit, generateImage)
 
 
-imageRouter.post('/clear-cache',userAuth,clearImageCache)  // Admin endpoint
+imageRouter.post('/clear-cache',userAuth,requireAdmin,clearImageCache)
 
 
-imageRouter.get('/cache-stats',userAuth,getCacheStats)    // Stats endpoint
+imageRouter.get('/cache-stats',userAuth,requireAdmin,getCacheStats)
 
 imageRouter.get('/rate-limit-status',userAuth,getRateLimitStatus) // Rate limit status
 
