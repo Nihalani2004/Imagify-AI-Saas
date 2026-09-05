@@ -34,8 +34,22 @@ jobs:
         run: npm run build
 
   server:
-    name: Server validation
+    name: Server validation and tests
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDIS_URL: redis://localhost:6379
+      REQUIRE_REDIS: "true"
+      JWT_SECRET: ci-test-jwt-secret
     defaults:
       run:
         working-directory: server
@@ -58,4 +72,10 @@ jobs:
           node --check server.js
           node --check config/redis.js
           node --check middlewares/rateLimiter.js
+          node --check middlewares/requireAdmin.js
           node --check controllers/imageController.js
+          node --check scripts/setAdmin.js
+          node --check utils/paymentSignature.js
+
+      - name: Run server behavior tests
+        run: npm test

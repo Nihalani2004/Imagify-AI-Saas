@@ -3,7 +3,7 @@ import bcrypt from "bcrypt"
 import jwt from "jsonwebtoken"
 import razorpay from "razorpay"
 import transactionModel from "../models/transactionModel.js";
-import crypto from "crypto";
+import { verifyRazorpaySignature } from "../utils/paymentSignature.js";
 
 const registerUser = async (req,res)=>{
   try {
@@ -137,12 +137,12 @@ const verifyRazorpay = async (req, res) => {
     console.log("verifyRazorpay req.body:", req.body);
 
     // 1. Verify signature
-    const generated_signature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(razorpay_order_id + "|" + razorpay_payment_id)
-      .digest("hex");
-
-    if (generated_signature !== razorpay_signature) {
+    if (!verifyRazorpaySignature(
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      process.env.RAZORPAY_KEY_SECRET
+    )) {
       return res.json({ success: false, message: "Invalid payment signature" });
     }
 

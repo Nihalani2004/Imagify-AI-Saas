@@ -221,4 +221,6 @@ const scanRedisKeys = async (pattern) => {
     return keys;
 };
 
-export { redisClient, connectRedis, ensureRedisConnection, scanRedisKeys };
+const isUsingInMemoryRedis = () => usingMock;
+
+export { redisClient, connectRedis, ensureRedisConnection, scanRedisKeys, isUsingInMemoryRedis };
