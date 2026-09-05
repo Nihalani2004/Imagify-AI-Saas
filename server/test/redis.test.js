@@ -14,6 +14,13 @@ test('Redis performs a real cache round trip with an expiry', async (t) => {
 
   t.after(async () => {
     await redis.del(key);
+
+    // A real node-redis connection keeps the test runner alive. The mock does
+    // not need closing, and closing it would prevent other local test files
+    // from reusing the fallback client.
+    if (!isUsingInMemoryRedis() && redis.isOpen) {
+      await redis.close();
+    }
   });
 
   assert.equal(isUsingInMemoryRedis(), false, 'CI must use the Redis service, not the fallback mock');
