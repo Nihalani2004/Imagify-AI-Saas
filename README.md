@@ -240,8 +240,21 @@ Open the Vite URL shown in the terminal, normally `http://localhost:5173`.
 | `GET` | `/api/image/history` | Retrieve generation history | JWT |
 | `DELETE` | `/api/image/history` | Clear generation history | JWT |
 | `GET` | `/api/image/rate-limit-status` | Inspect current usage allowance | JWT |
+| `POST` | `/api/image/clear-cache` | Clear one or all image cache entries | Admin JWT |
+| `GET` | `/api/image/cache-stats` | Retrieve cached-image count | Admin JWT |
 | `POST` | `/api/user/pay-razor` | Create a Razorpay order | JWT |
 | `POST` | `/api/user/verify-razor` | Verify Razorpay payment signature | No |
+
+### Grant admin access locally
+
+Every new account receives the `user` role. Promote an existing account only from a trusted server terminal:
+
+```powershell
+cd server
+npm run make-admin -- user@example.com
+```
+
+The cache administration routes query the current MongoDB role for every request, so role changes take effect immediately without requiring a new JWT.
 
 ## Verify Redis Locally
 
@@ -267,4 +280,5 @@ GitHub Actions runs on pushes and pull requests targeting `main`:
 
 - installs and builds the React client;
 - installs the server dependencies;
-- validates server module syntax.
+- validates server module syntax;
+- runs JWT authentication, user credit/role, Razorpay HMAC, Redis cache, and Redis rate-limit tests against a real Redis service.
