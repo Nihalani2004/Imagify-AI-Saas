@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
-import { ensureRedisConnection } from "../config/redis.js";
+import { ensureRedisConnection, isUsingInMemoryRedis } from "../config/redis.js";
 import { imageRateLimit } from "../middlewares/rateLimiter.js";
 
 const createResponse = () => ({
@@ -20,6 +20,12 @@ test('imageRateLimit permits ten requests and rejects the eleventh', async (t) =
 
   t.after(async () => {
     await redis.del(key);
+
+    // Each test file runs in its own worker. Close the real client so this
+    // worker can exit after exercising the Redis-backed rate limiter.
+    if (!isUsingInMemoryRedis() && redis.isOpen) {
+      await redis.close();
+    }
   });
 
   for (let attempt = 1; attempt <= 10; attempt += 1) {
