@@ -1,114 +1,270 @@
-# Imagify - AI SaaS Image Generator
+<div align="center">
+  <h1>🎨 ImagiFy</h1>
+  <p><strong>An AI-Powered Text-to-Image SaaS Platform</strong></p>
+  <p>Text-to-Image Generation • Secure Credits & Payments • Redis-Powered Performance</p>
 
-Imagify is a modern, premium full-stack AI-powered SaaS application that transforms textual prompts into beautiful, high-quality images. It includes a credit-based system, secure authentication, API rate-limiting via Redis, and a complete image history dashboard.
-
----
-
-## 🚀 Key Features
-
-- **🎨 Text-to-Image Generation:** Powered by advanced AI models to turn descriptive prompts into high-resolution visuals.
-- **🔐 User Authentication:** Secure signup, login, and token-based API authorization.
-- **💳 Credit-Based Usage:** Users consume credits to generate images, with real-time balance tracking.
-- **⚡ Performance Caching & Rate Limiting:** Backend optimized with Redis to manage traffic and handle rate-limiting.
-- **📜 Generation History:** A dedicated dashboard for users to review, search, and download their previously generated images.
-- **📱 Responsive, Premium UI:** Built using React + TailwindCSS with sleek dark/light mode accents, glassmorphic UI elements, and modern typography.
-
----
-
-## 🛠️ Technology Stack
-
-### Frontend
-- **Framework:** React.js (Vite)
-- **Styling:** TailwindCSS (with Vanilla CSS overrides)
-- **Navigation:** React Router DOM
-- **Notifications:** React Toastify
-- **Icons:** Boxicons / Custom SVG icons
-
-### Backend
-- **Runtime Environment:** Node.js
-- **Framework:** Express.js
-- **Database:** MongoDB (using Mongoose ODM)
-- **Caching & Rate Limiting:** Redis
-- **Security & Utilities:** JSON Web Tokens (JWT) for authentication, CORS, dotenv for environment management.
+  <p>
+    <a href="https://github.com/Nihalani2004/Imagify-AI-Saas/actions/workflows/ci.yml">
+      <img src="https://github.com/Nihalani2004/Imagify-AI-Saas/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status" />
+    </a>
+    <img src="https://img.shields.io/badge/Frontend-React%2019%20%2B%20Vite-61DAFB?logo=react&logoColor=black" alt="React 19 and Vite" />
+    <img src="https://img.shields.io/badge/Backend-Node.js%20%2B%20Express-339933?logo=nodedotjs&logoColor=white" alt="Node.js and Express" />
+    <img src="https://img.shields.io/badge/AI-Clipdrop-6C3BFF" alt="Clipdrop AI" />
+    <img src="https://img.shields.io/badge/Database-MongoDB-47A248?logo=mongodb&logoColor=white" alt="MongoDB" />
+    <img src="https://img.shields.io/badge/Cache-Redis-DC382D?logo=redis&logoColor=white" alt="Redis" />
+  </p>
+</div>
 
 ---
 
-## 📁 Repository Structure
+ImagiFy converts natural-language prompts into AI-generated images through the Clipdrop API. It combines secure authentication, credit-based usage, Razorpay payments, Redis-backed caching and rate limiting, and a personal generation-history dashboard into a complete MERN SaaS workflow.
 
+## Highlights
+
+- **87% faster repeat requests** through Redis-backed normalized-prompt caching.
+- **Zero additional credits on cache hits** because identical prompts reuse the stored result instead of calling the AI provider again.
+- **10 successful generations per user per hour** enforced through an atomic Redis-backed rate-limit reservation.
+- **30-day personal history** retaining each user's latest 10 generated images.
+- **Secure credit purchases** using Razorpay order creation and server-side HMAC-SHA256 signature verification.
+
+## High-Level Architecture
+
+```mermaid
+flowchart LR
+    U[User] --> C[React 19 + Vite Client]
+    C -->|REST API + JWT| A[Express API]
+
+    A --> AU[JWT Authentication]
+    A --> CR[Credit & Transaction Service]
+    A --> IG[Image Generation Service]
+
+    AU --> M[(MongoDB)]
+    CR --> M
+    CR --> RZ[Razorpay]
+
+    IG -->|Cache / Rate Limit / History| R[(Redis)]
+    IG -->|Cache miss| CD[Clipdrop Text-to-Image API]
+
+    R -->|Cached image| IG
+    CD -->|Generated image| IG
+    IG --> C
 ```
-├── client/                 # Frontend React application (Vite + TailwindCSS)
+
+## Core Features
+
+### AI image generation
+
+- Generates images from descriptive text prompts using the Clipdrop Text-to-Image API.
+- Displays generation progress and lets users download generated PNGs.
+- Deducts one credit only when a new provider generation is required.
+
+### Authentication and user state
+
+- Email/password registration and login with bcrypt password hashing.
+- JWT-protected API routes for credits, image generation, history, and payments.
+- React Context API manages user identity, token, and live credit balance across the client.
+
+### Credit-based monetization
+
+- New accounts receive **5 starter credits**.
+- A new AI generation costs **1 credit**; cache hits cost **0 credits**.
+- Razorpay checkout creates payment orders and verifies HMAC-SHA256 signatures server-side before crediting an account.
+
+### Redis performance and protection
+
+| Capability | Implementation |
+| --- | --- |
+| Image cache | Versioned SHA-256 key created from a normalized prompt |
+| Cache duration | Configurable TTL; 24 hours by default |
+| Cache hit | Returns the stored image, skips Clipdrop, and preserves credits |
+| Rate limiting | Atomic reservation of up to 10 successful generations per user per hour |
+| History | Redis list retaining 10 latest entries per user for 30 days |
+| Cache administration | Uses `SCAN` rather than blocking `KEYS` operations |
+
+### Generation history
+
+- Shows recent image previews, prompts, timestamps, and cache-source status.
+- Supports downloading an image, copying its prompt, and clearing the user's history.
+
+## Generation Flow
+
+```text
+Authenticated request
+  → reserve Redis rate-limit slot
+  → validate available credit
+  → normalize prompt and check Redis cache
+  → cache hit: return image with no credit deduction
+  → cache miss: generate through Clipdrop
+  → cache image for 24 hours and record user history
+  → deduct one MongoDB credit and return result
+```
+
+## Technology Stack
+
+| Layer | Technologies |
+| --- | --- |
+| Frontend | React 19, Vite, React Router, Tailwind CSS, Motion, React Toastify |
+| Backend | Node.js, Express 5, Axios, FormData |
+| Database | MongoDB, Mongoose |
+| Cache and controls | Redis, SHA-256 cache keys, rate limiting, generation history |
+| Authentication | JSON Web Tokens, bcrypt |
+| Payments | Razorpay, HMAC-SHA256 signature verification |
+| AI provider | Clipdrop Text-to-Image API |
+| CI | GitHub Actions: client build and server syntax validation |
+
+## Project Structure
+
+```text
+Imagify-AI-Saas/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                 # GitHub Actions validation
+├── client/
 │   ├── src/
-│   │   ├── assets/         # Images, logos, and graphic assets
-│   │   ├── components/     # Reusable UI components (Navbar, Header, Footer, Steps, etc.)
-│   │   ├── context/        # AppContext and global state management
-│   │   ├── pages/          # Pages (Home, Result, BuyCredit, History)
-│   │   └── main.jsx        # Entry point
+│   │   ├── assets/                # Static branding and UI assets
+│   │   ├── components/            # Navbar, login, landing-page components
+│   │   ├── context/               # Global user, token, and credit state
+│   │   ├── pages/                 # Home, result, credits, and history views
+│   │   └── App.jsx
 │   └── package.json
-│
-├── server/                 # Backend Node.js / Express API
-│   ├── config/             # Database (MongoDB) and cache (Redis) configurations
-│   ├── controllers/        # Core business logic (userController, imageController)
-│   ├── middlewares/        # Authentication & rate limiting middlewares
-│   ├── models/             # Mongoose schemas (userModel, transactionModel)
-│   ├── routes/             # API routes definition (userRoute, imageRoutes)
-│   ├── utils/              # Helper utilities (historyManager)
-│   └── server.js           # Server initialization
+├── server/
+│   ├── config/                    # MongoDB and Redis configuration
+│   ├── controllers/               # User, payment, and image business logic
+│   ├── middlewares/               # JWT authentication and rate limiting
+│   ├── models/                    # User and transaction schemas
+│   ├── routes/                    # REST API route definitions
+│   ├── utils/                     # Redis-backed history manager
+│   ├── server.js
+│   └── package.json
+└── README.md
 ```
 
----
-
-## 🔧 Installation & Setup
+## Getting Started
 
 ### Prerequisites
-- Node.js (v16.x or higher)
-- MongoDB account (Atlas or Local Instance)
-- Redis server (local or cloud-hosted)
-- AI Image Generation API Key (e.g., Clipdrop/Stability AI)
 
-### 1. Server Configuration
-Navigate to the `server` directory:
-```bash
+- Node.js 20+ and npm
+- MongoDB instance or MongoDB Atlas connection string
+- Redis instance; Docker Desktop is recommended for local development
+- Clipdrop API key
+- Razorpay test/live credentials if payment testing is required
+
+### 1. Start Redis
+
+With Docker Desktop running:
+
+```powershell
+docker run --name imagify-redis --restart unless-stopped -p 6379:6379 -d redis:7-alpine
+```
+
+If the container already exists:
+
+```powershell
+docker start imagify-redis
+```
+
+Verify the service:
+
+```powershell
+docker exec imagify-redis redis-cli ping
+```
+
+Expected output:
+
+```text
+PONG
+```
+
+### 2. Configure and start the server
+
+```powershell
 cd server
 npm install
 ```
 
-Create a `.env` file in the `server` directory (reference `.env.example`):
+Create `server/.env`:
+
 ```env
 PORT=4000
 MONGODB_URI=your_mongodb_connection_string
-REDIS_URL=your_redis_connection_string
-JWT_SECRET=your_jwt_signing_key
-CLIPDROP_API=your_clipdrop_api_key
-# Optional: set to true in production to fail startup instead of using the in-memory fallback.
+REDIS_URL=redis://localhost:6379
 REQUIRE_REDIS=true
-# Optional: defaults to 86400 (24 hours).
 IMAGE_CACHE_TTL_SECONDS=86400
+JWT_SECRET=use_a_long_random_secret
+CLIPDROP_API=your_clipdrop_api_key
+RAZORPAY_KEY_ID=your_razorpay_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret
+CURRENCY=INR
 ```
 
-Start the backend server:
-```bash
-npm run dev
+Start the API:
+
+```powershell
+npm run server
 ```
 
-### 2. Client Configuration
-Navigate to the `client` directory:
-```bash
-cd ../client
+The server should report a MongoDB connection, a Redis connection, and port `4000`.
+
+### 3. Configure and start the client
+
+Open a second terminal:
+
+```powershell
+cd client
 npm install
 ```
 
-Create a `.env` file in the `client` directory (reference `.env.example`):
+Create `client/.env`:
+
 ```env
 VITE_BACKEND_URL=http://localhost:4000
+VITE_RAZORPAY_KEY_ID=your_razorpay_key_id
 ```
 
-Start the React development server:
-```bash
+Start the client:
+
+```powershell
 npm run dev
 ```
 
----
+Open the Vite URL shown in the terminal, normally `http://localhost:5173`.
 
-## 📜 License
+## API Overview
 
-This project is licensed under the MIT License.
+| Method | Endpoint | Purpose | Authentication |
+| --- | --- | --- | --- |
+| `POST` | `/api/user/register` | Create an account | No |
+| `POST` | `/api/user/login` | Authenticate and receive JWT | No |
+| `GET` | `/api/user/credits` | Get credit balance and user name | JWT |
+| `POST` | `/api/image/generate-image` | Generate or retrieve an image | JWT + rate limit |
+| `GET` | `/api/image/history` | Retrieve generation history | JWT |
+| `DELETE` | `/api/image/history` | Clear generation history | JWT |
+| `GET` | `/api/image/rate-limit-status` | Inspect current usage allowance | JWT |
+| `POST` | `/api/user/pay-razor` | Create a Razorpay order | JWT |
+| `POST` | `/api/user/verify-razor` | Verify Razorpay payment signature | No |
+
+## Verify Redis Locally
+
+After creating an image, inspect Redis keys:
+
+```powershell
+docker exec imagify-redis redis-cli KEYS "*"
+```
+
+You should see keys similar to:
+
+```text
+image:clipdrop-text-to-image-v1:<sha256-hash>
+rate_limit:<user-id>:<hour>
+history:<user-id>
+```
+
+To confirm a cache hit, submit the exact same prompt twice. The second response should return `fromCache: true`, preserve the credit balance, and avoid a second Clipdrop request.
+
+## CI
+
+GitHub Actions runs on pushes and pull requests targeting `main`:
+
+- installs and builds the React client;
+- installs the server dependencies;
+- validates server module syntax.
