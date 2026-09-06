@@ -1,11 +1,12 @@
 import jwt from "jsonwebtoken"
+import { sendError } from "../utils/apiError.js";
 
 const userAuth = async (req,res,next)=>{
   const {token} = req.headers;
   if(!token)
   {
-    return res.json({success:false , message : "Not Authorized . Login Again"
-    });}
+    return sendError(res, 401, "Not Authorized . Login Again", 'AUTHENTICATION_REQUIRED');
+  }
     try {
       const tokenDecode = jwt.verify(token , process.env.JWT_SECRET);
       if(tokenDecode.id)
@@ -14,11 +15,11 @@ const userAuth = async (req,res,next)=>{
 req.userId = tokenDecode.id; // ✅ works for all request types (GET or POST)
       }
       else{
-        return res.json({success:false , message:"Not Authorized . Login Again"});
+        return sendError(res, 401, "Not Authorized . Login Again", 'AUTHENTICATION_REQUIRED');
       }
       next()
     } catch (error) {
-      res.json({success:false , message:error.message})
+      return sendError(res, 401, "Not Authorized . Login Again", 'INVALID_TOKEN');
     }
   
 }

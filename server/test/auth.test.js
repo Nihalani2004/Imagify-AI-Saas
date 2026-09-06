@@ -8,7 +8,12 @@ process.env.JWT_SECRET = TEST_SECRET;
 
 const runAuth = async (token) => {
   const req = { headers: token ? { token } : {} };
-  const response = { body: null, json(payload) { this.body = payload; return payload; } };
+  const response = {
+    body: null,
+    statusCode: 200,
+    status(statusCode) { this.statusCode = statusCode; return this; },
+    json(payload) { this.body = payload; return payload; },
+  };
   let nextCalled = false;
 
   await userAuth(req, response, () => {
@@ -31,6 +36,7 @@ test('userAuth rejects requests without a token', async () => {
   const result = await runAuth();
 
   assert.equal(result.nextCalled, false);
+  assert.equal(result.response.statusCode, 401);
   assert.equal(result.response.body.success, false);
 });
 
@@ -38,5 +44,6 @@ test('userAuth rejects an invalid JWT', async () => {
   const result = await runAuth('not-a-valid-token');
 
   assert.equal(result.nextCalled, false);
+  assert.equal(result.response.statusCode, 401);
   assert.equal(result.response.body.success, false);
 });

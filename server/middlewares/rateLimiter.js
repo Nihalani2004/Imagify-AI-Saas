@@ -1,4 +1,5 @@
 import { ensureRedisConnection } from "../config/redis.js";
+import { sendError } from "../utils/apiError.js";
 
 const RATE_LIMIT = 10;
 
@@ -35,7 +36,7 @@ export const createImageRateLimit = ({
     const userId = req.userId;
     
     if (!userId) {
-      return res.json({ success: false, message: "Authentication required" });
+      return sendError(res, 401, 'Authentication required', 'AUTHENTICATION_REQUIRED');
     }
 
     const redis = await getRedis();
@@ -55,14 +56,18 @@ export const createImageRateLimit = ({
 
     if (count > rateLimit) {
       await redis.decr(hourlyKey);
-      return res.json({
-        success: false,
-        message: `Rate limit exceeded. You can generate ${rateLimit} images per hour. Try again later.`,
+      return sendError(
+        res,
+        429,
+        `Rate limit exceeded. You can generate ${rateLimit} images per hour. Try again later.`,
+        'RATE_LIMIT_EXCEEDED',
+        {
         rateLimitExceeded: true,
         currentCount: rateLimit,
         maxLimit: rateLimit,
         resetTime: (currentHour + 1) * 60 * 60 * 1000 // Next hour in milliseconds
-      });
+        },
+      );
     }
     req.rateLimitInfo = {
       currentCount: count,
@@ -74,11 +79,12 @@ export const createImageRateLimit = ({
     
   } catch (error) {
     console.error('Rate limiting unavailable:', error.message);
-    return res.status(503).json({
-      success: false,
-      code: 'RATE_LIMIT_UNAVAILABLE',
-      message: 'Image generation is temporarily unavailable. Please try again shortly.',
-    });
+    return sendError(
+      res,
+      503,
+      'Image generation is temporarily unavailable. Please try again shortly.',
+      'RATE_LIMIT_UNAVAILABLE',
+    );
   }
 };
 
