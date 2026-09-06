@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { redisClient, ensureRedisConnection, scanRedisKeys } from "../config/redis.js";
 import { historyManager } from "../utils/historyManager.js";
 import { releaseRateLimitReservation } from "../middlewares/rateLimiter.js";
+import { sendError } from "../utils/apiError.js";
 
 const IMAGE_CACHE_NAMESPACE = 'clipdrop-text-to-image-v1';
 const IMAGE_CACHE_TTL_SECONDS = Number(process.env.IMAGE_CACHE_TTL_SECONDS || 86400);
@@ -19,7 +20,7 @@ export const createImageCacheKey = (prompt) => {
 };
 
 
-export const generateImage = async (req,res) => {
+export const generateImage = async (req, res, next) => {
  const startTime = Date.now(); // 📊 Start performance timer
  try {
   console.log('🎯 GENERATE IMAGE REQUEST RECEIVED');
@@ -33,7 +34,7 @@ export const generateImage = async (req,res) => {
   if(!user || !prompt) {
     console.log('❌ Missing user or prompt');
     await releaseRateLimitReservation(req);
-    return res.json({success:false , message:"Missing Details"})
+    return sendError(res, 400, 'Missing Details', 'MISSING_DETAILS');
   }
 
   console.log('💳 User credit balance:', user.creditBalance);
@@ -83,7 +84,9 @@ export const generateImage = async (req,res) => {
   if (user.creditBalance <= 0) {
     console.log('❌ Insufficient credits');
     await releaseRateLimitReservation(req);
-    return res.json({ success: false, message: "No credit Balance", creditBalance: user.creditBalance });
+    return sendError(res, 402, 'No credit Balance', 'INSUFFICIENT_CREDITS', {
+      creditBalance: user.creditBalance,
+    });
   }
 
   // 🎨 Generate new image via API
@@ -123,7 +126,7 @@ export const generateImage = async (req,res) => {
   const responseTime = Date.now() - startTime;
   console.log('🐌 NEW GENERATION - Response time:', responseTime, 'ms');
   
-  res.json({
+  return res.json({
     success:true,
     message:"Image Generated",
     creditBalance:user.creditBalance-1,
@@ -134,9 +137,8 @@ export const generateImage = async (req,res) => {
   })
 
  } catch (error) {
-  console.log(error.message);
   await releaseRateLimitReservation(req);
-  res.json({success:false , message:error.message})
+  return next(error);
  }
 }
 
@@ -144,7 +146,7 @@ export const generateImage = async (req,res) => {
 
 
 // 🗑️ Clear image cache (for admin/debugging)
-export const clearImageCache = async (req, res) => {
+export const clearImageCache = async (req, res, next) => {
   try {
     const { prompt } = req.body;
     
@@ -165,27 +167,25 @@ export const clearImageCache = async (req, res) => {
       }
     }
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return next(error);
   }
 };
 
 // 📊 Get cache statistics
-export const getCacheStats = async (req, res) => {
+export const getCacheStats = async (req, res, next) => {
   try {
     const stats = {
       totalCachedImages: (await scanRedisKeys('image:*')).length
     };
     res.json({ success: true, stats });
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return next(error);
   }
 };
 
 
 // 🚦 Get user's current rate limit status
-export const getRateLimitStatus = async (req, res) => {
+export const getRateLimitStatus = async (req, res, next) => {
   try {
     const userId = req.userId;
     await ensureRedisConnection();
@@ -208,8 +208,7 @@ export const getRateLimitStatus = async (req, res) => {
       }
     });
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return next(error);
   }
 };
 
@@ -217,7 +216,7 @@ export const getRateLimitStatus = async (req, res) => {
 
 
 // 📚 Get user's generation history
-export const getGenerationHistory = async (req, res) => {
+export const getGenerationHistory = async (req, res, next) => {
   try {
     const userId = req.userId;
     const { limit } = req.query; // Optional limit parameter
@@ -232,13 +231,12 @@ export const getGenerationHistory = async (req, res) => {
       message: `Retrieved ${history.length} history entries`
     });
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return next(error);
   }
 };
 
 // 🗑️ Clear user's generation history
-export const clearGenerationHistory = async (req, res) => {
+export const clearGenerationHistory = async (req, res, next) => {
   try {
     const userId = req.userId;
     const success = await historyManager.clearHistory(userId);
@@ -246,10 +244,9 @@ export const clearGenerationHistory = async (req, res) => {
     if (success) {
       res.json({ success: true, message: "Generation history cleared successfully" });
     } else {
-      res.json({ success: false, message: "Failed to clear history" });
+      return sendError(res, 500, 'Failed to clear history', 'HISTORY_CLEAR_FAILED');
     }
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return next(error);
   }
 };
