@@ -201,7 +201,10 @@ const ensureRedisConnection = async () => {
         return redisClient; // Mock is always "connected"
     }
     if (!redisClient.isOpen) {
-        // Real Redis disconnected — fall back to mock
+        if (process.env.REQUIRE_REDIS === 'true') {
+            throw new Error('Redis connection is unavailable');
+        }
+        // The development fallback is intentionally only used when Redis is optional.
         console.log('🔄 Redis disconnected, switching to In-Memory Mock...');
         redisClient = new InMemoryRedis();
         usingMock = true;

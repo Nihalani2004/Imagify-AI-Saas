@@ -2,10 +2,15 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { ensureRedisConnection, isUsingInMemoryRedis } from "../config/redis.js";
-import { imageRateLimit } from "../middlewares/rateLimiter.js";
+import { createImageRateLimit, imageRateLimit } from "../middlewares/rateLimiter.js";
 
 const createResponse = () => ({
   body: null,
+  statusCode: 200,
+  status(statusCode) {
+    this.statusCode = statusCode;
+    return this;
+  },
   json(payload) {
     this.body = payload;
     return payload;
@@ -49,4 +54,24 @@ test('imageRateLimit permits ten requests and rejects the eleventh', async (t) =
 
   assert.equal(res.body.rateLimitExceeded, true);
   assert.equal(res.body.currentCount, 10);
+});
+
+test('imageRateLimit fails closed when Redis is unavailable', async () => {
+  const unavailableRateLimit = createImageRateLimit({
+    getRedis: async () => {
+      throw new Error('Redis unavailable');
+    },
+  });
+  const req = { userId: 'test-user' };
+  const res = createResponse();
+  let nextCalled = false;
+
+  await unavailableRateLimit(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.success, false);
+  assert.equal(res.body.code, 'RATE_LIMIT_UNAVAILABLE');
 });
