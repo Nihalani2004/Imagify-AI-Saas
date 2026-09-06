@@ -6,6 +6,7 @@ import { motion } from "motion/react"
 import { AppContext } from '../context/AppContext'
 import axios from "axios"
 import { toast } from 'react-toastify'
+import { getApiErrorMessage } from '../utils/apiError'
 
 const Login = () => {
   const [state,setState]=useState('Login')
@@ -46,7 +47,7 @@ try {
 
   }
 } catch (error) {
-  toast.error(error.message)
+  toast.error(getApiErrorMessage(error))
 }
   }
 

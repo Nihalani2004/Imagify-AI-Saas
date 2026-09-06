@@ -6,6 +6,7 @@ import { motion } from "motion/react"
 import {useNavigate} from "react-router-dom"
 import {toast} from "react-toastify"
 import axios from "axios"
+import { getApiErrorMessage } from '../utils/apiError'
 
 const BuyCredit = () => {
 
@@ -42,7 +43,7 @@ const initPay = async(order)=>{
             toast.error(data.message || "Verification failed");
           }
         } catch (error) {
-          toast.error(error.message);
+          toast.error(getApiErrorMessage(error));
         }
       }
     }
@@ -80,7 +81,7 @@ const paymentRazorpay = async(planId)=> {
 
   } catch (error) {
     console.error("Error in paymentRazorpay:", error);
-    toast.error(error.message)
+    toast.error(getApiErrorMessage(error))
   }
 }
 

@@ -3,6 +3,7 @@ import { toast } from "react-toastify";
 import axios from "axios";
 import { useNavigate } from 'react-router-dom';
 import { AppContext } from './AppContext'; // Import from separate file
+import { getApiErrorData, getApiErrorMessage } from '../utils/apiError';
 
 const AppContextProvider = (props) => {
    const [user, setUser] = useState(false);
@@ -22,7 +23,7 @@ const AppContextProvider = (props) => {
       }
     } catch (error) {
       console.log(error)
-      toast.error(error.message)
+      toast.error(getApiErrorMessage(error))
     }
    }
 
@@ -41,7 +42,12 @@ const AppContextProvider = (props) => {
          }
        }
      } catch (error) {
-       toast.error(error.message)
+       const errorData = getApiErrorData(error)
+       toast.error(getApiErrorMessage(error))
+       loadCreditsData();
+       if(errorData?.creditBalance === 0) {
+         navigate('/buy')
+       }
      }
    }
 
