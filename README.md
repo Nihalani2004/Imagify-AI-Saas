@@ -233,6 +233,8 @@ Open the Vite URL shown in the terminal, normally `http://localhost:5173`.
 
 | Method | Endpoint | Purpose | Authentication |
 | --- | --- | --- | --- |
+| `GET` | `/health` | Liveness check for the API process | No |
+| `GET` | `/ready` | Readiness check for MongoDB and Redis | No |
 | `POST` | `/api/user/register` | Create an account | No |
 | `POST` | `/api/user/login` | Authenticate and receive JWT | No |
 | `GET` | `/api/user/credits` | Get credit balance and user name | JWT |
@@ -244,6 +246,16 @@ Open the Vite URL shown in the terminal, normally `http://localhost:5173`.
 | `GET` | `/api/image/cache-stats` | Retrieve cached-image count | Admin JWT |
 | `POST` | `/api/user/pay-razor` | Create a Razorpay order | JWT |
 | `POST` | `/api/user/verify-razor` | Verify Razorpay payment signature | No |
+
+API failures return an appropriate HTTP status and a consistent body:
+
+```json
+{
+  "success": false,
+  "message": "Human-readable error message",
+  "code": "STABLE_ERROR_CODE"
+}
+```
 
 ### Grant admin access locally
 

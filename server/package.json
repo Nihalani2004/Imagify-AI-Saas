@@ -7,7 +7,7 @@
     "start": "node server.js",
     "server": "nodemon server.js",
     "make-admin": "node scripts/setAdmin.js",
-    "test": "node --test test/auth.test.js test/imageController.test.js test/paymentSignature.test.js test/redis.test.js test/rateLimiter.test.js test/userModel.test.js"
+    "test": "node --test test/auth.test.js test/errorHandler.test.js test/healthController.test.js test/imageController.test.js test/paymentSignature.test.js test/redis.test.js test/rateLimiter.test.js test/userModel.test.js"
   },
   "author": "",
   "license": "ISC",
