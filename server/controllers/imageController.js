@@ -9,7 +9,7 @@ import { releaseRateLimitReservation } from "../middlewares/rateLimiter.js";
 const IMAGE_CACHE_NAMESPACE = 'clipdrop-text-to-image-v1';
 const IMAGE_CACHE_TTL_SECONDS = Number(process.env.IMAGE_CACHE_TTL_SECONDS || 86400);
 
-const createImageCacheKey = (prompt) => {
+export const createImageCacheKey = (prompt) => {
   const normalizedPrompt = prompt.toLowerCase().trim();
   const promptHash = crypto
     .createHash('sha256')
@@ -37,12 +37,6 @@ export const generateImage = async (req,res) => {
   }
 
   console.log('💳 User credit balance:', user.creditBalance);
-
-  if(user.creditBalance === 0 || user.creditBalance < 0) {
-    console.log('❌ Insufficient credits');
-    await releaseRateLimitReservation(req);
-    return res.json({success:false , message:"No credit Balance" , creditBalance:user.creditBalance})
-  }
 
   // 🚀 REDIS CACHING: versioned SHA-256 key prevents collisions across models.
   const cacheKey = createImageCacheKey(prompt);
@@ -82,6 +76,14 @@ export const generateImage = async (req,res) => {
   } catch (cacheError) {
     console.log('🚨 Redis cache check failed:', cacheError.message);
     // Continue with API call if cache fails
+  }
+
+  // Cached images do not consume credits, so only reject users after a cache
+  // miss has been confirmed.
+  if (user.creditBalance <= 0) {
+    console.log('❌ Insufficient credits');
+    await releaseRateLimitReservation(req);
+    return res.json({ success: false, message: "No credit Balance", creditBalance: user.creditBalance });
   }
 
   // 🎨 Generate new image via API
